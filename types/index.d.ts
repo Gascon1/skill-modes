@@ -3,7 +3,7 @@ export type SkillModesActive = {
   description: string
   path: string
   dir: string
-  scope: 'project' | 'user'
+  scope: 'project' | 'user' | 'plugin'
   icon: string | null
   color: string | null
 }

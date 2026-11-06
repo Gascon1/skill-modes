@@ -10,6 +10,7 @@ import {
   glyph,
   normColor,
   isModeKey,
+  missedModeKey,
   modeToken,
   resolveToken,
   enteredToast,
@@ -425,6 +426,54 @@ test('Option/Alt+Enter detection', () => {
   expect(modeToken(ed('/rev', { start: 2, end: 4 }))).toBeNull()
   expect(modeToken(ed('/'))).toBeNull()
   expect(isModeKey(ed('', { key: { key: 'enter', meta: true } }))).toBe(true)
+  // Windows Terminal / WSL: CR instead of LF, or ESC CR folded into one edit with no key
+  expect(modeToken(ed('/rev', { key: undefined, inputText: '\r' }))).toBe('rev')
+  expect(modeToken(ed('/rev', { key: undefined, inputText: '\x1b\r' }))).toBe('rev')
+  expect(modeToken(ed('/rev', { key: { key: '\r', meta: true } }))).toBe('rev')
+  expect(missedModeKey(ed('/rev', { key: { key: 'return', meta: true, ctrl: true } }))).toContain('not taken')
+  expect(missedModeKey(ed('/rev', { key: { key: 'v' }, inputText: 'v' }))).toBeNull()
+})
+
+const PLUG = '/home/u/.claude/plugins/cache/mkt/tools/1.0.0'
+const SYNCED = '/home/u/.claude/plugins/synced/acct/p1'
+const pluginFiles = (): Record<string, string> => ({
+  ...baseFiles(),
+  '/home/u/.claude/plugins/installed_plugins.json': JSON.stringify({
+    version: 2,
+    plugins: {
+      'tools@mkt': [{ scope: 'user', installPath: PLUG }],
+      'other@mkt': [{ scope: 'project', projectPath: '/elsewhere', installPath: '/home/u/.claude/plugins/cache/mkt/other/1' }],
+    },
+  }),
+  [`${PLUG}/.claude-plugin/plugin.json`]: JSON.stringify({ name: 'tools' }),
+  [`${PLUG}/skills/tdd/SKILL.md`]: '---\nname: tdd\ndescription: Test first\n---\nTDD-BODY\n',
+  [`${PLUG}/skills/off/SKILL.md`]: '---\nname: disabled-one\ndescription: Not enabled\n---\nx\n',
+  ['/home/u/.claude/plugins/cache/mkt/other/1/.claude-plugin/plugin.json']: JSON.stringify({ name: 'other' }),
+  ['/home/u/.claude/plugins/cache/mkt/other/1/skills/nope/SKILL.md']: '---\nname: nope\ndescription: Other project\n---\nx\n',
+  [`${SYNCED}/.claude-plugin/plugin.json`]: JSON.stringify({ name: 'mp', skills: ['./skills/eng/grill'] }),
+  [`${SYNCED}/skills/eng/grill/SKILL.md`]: '---\nname: grill\ndescription: Grills you\n---\nGRILL-BODY\n',
+})
+
+test('plugin skills are listed and usable as modes', async ($, on) => {
+  const w = world(on, pluginFiles())
+  on('command.list', () => ({
+    value: [
+      { name: 'tools:tdd', description: 'Test first', source: 'plugin', plugin: 'tools' },
+      { name: 'mp:grill', description: 'Grills you', source: 'plugin', plugin: 'mp' },
+      { name: 'other:nope', description: 'x', source: 'plugin', plugin: 'other' },
+    ],
+  }))
+  await $.session.start(START)
+  const r = await run($, '')
+  expect(r.text).toContain('- tools:tdd: Test first (plugin,')
+  expect(r.text).toContain('- mp:grill: Grills you (plugin,')
+  expect(r.text).not.toContain('disabled-one')
+  expect(r.text).not.toContain('nope')
+  expect(r.text).toContain('- reviewer: Reviews code (project,')
+  expect((await run($, 'tdd')).text).toMatch(/tools:tdd\*\* mode on/)
+  await submit($, 'hi')
+  expect(w.sent[0]!.context![0]).toContain('TDD-BODY')
+  expect((await run($, 'mp:grill')).text).toMatch(/mp:grill\*\* mode on/)
 })
 
 test('resolveToken', () => {

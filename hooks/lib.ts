@@ -6,7 +6,7 @@ export const OFF_WORDS = ['off', 'exit', 'none', 'stop']
 export const DEFAULT_GLYPH = '◆'
 export const INITIAL: SkillModesState = { active: null, pendingAttach: null, pendingExit: null }
 
-export type SkillScope = 'project' | 'user'
+export type SkillScope = 'project' | 'user' | 'plugin'
 export type ValidSkill = {
   isValid: true
   name: string
@@ -368,9 +368,18 @@ export type EditLike = {
 }
 
 /** Option/Alt+Enter as prompt.edit reports it: meta+return, or a keybinding's newline (no key). */
+const ENTER_KEYS = ['return', 'enter', '\r', '\n']
+const NEWLINES = ['\n', '\r', '\r\n', '\x1b\r', '\x1b\n']
 export function isModeKey(e: EditLike): boolean {
-  if (e.key) return (e.key.key === 'return' || e.key.key === 'enter') && e.key.meta === true && !e.key.ctrl
-  return e.inputText === '\n' && e.start === e.end
+  if (e.key) return ENTER_KEYS.includes(e.key.key) && e.key.meta === true && !e.key.ctrl
+  return NEWLINES.includes(e.inputText) && e.start === e.end
+}
+
+/** A line for the debug log when an edit on a `/token` draft looks like a modified Enter that isModeKey rejected. */
+export function missedModeKey(e: EditLike): string | null {
+  if (!/^[ \t]*\/\S*[ \t]*$/.test(e.text)) return null
+  const odd = e.key?.meta === true || /[\r\n\x1b]/.test(e.inputText)
+  return odd ? `skill-modes: prompt.edit not taken as Alt+Enter: ${JSON.stringify({ key: e.key ?? null, inputText: e.inputText, start: e.start, end: e.end, len: e.text.length })}` : null
 }
 
 const MODE_DRAFT = new RegExp(`^[ \\t]*\\/${COMMAND}[ \\t]+(\\S+)[ \\t]*$`)

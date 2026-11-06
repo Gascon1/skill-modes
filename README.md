@@ -39,7 +39,7 @@ claude plugin install skill-modes --marketplace Gascon1/skill-modes
 
 - Project: `.claude/skills/<name>/SKILL.md` in the working directory and the session root, and in each ancestor folder up to (not including) `$HOME`.
 - User: `~/.claude/skills`, or `$CLAUDE_CONFIG_DIR/skills`.
-- Skills provided by plugins are not discovered.
+- Plugin: skills of installed plugins that are enabled here (and account-synced plugins), named `<plugin>:<skill>`. `/mode tdd` or `/tdd` + Option/Alt+Enter also finds `mattpocock-skills:tdd` when no project or user skill has that name.
 - A skill needs `name` and `description` in its frontmatter; others are listed by `/mode` as not usable. On a name clash the first found wins (project before user).
 
 ## Terminal notes for Option/Alt+Enter
@@ -48,6 +48,7 @@ claude plugin install skill-modes --marketplace Gascon1/skill-modes
 - iTerm2: set Left Option key to "Esc+" (Profiles → Keys).
 - VS Code terminal: set `terminal.integrated.macOptionIsMeta` to `true`.
 - Windows Terminal: Alt+Enter is bound to fullscreen. Unbind it under Settings → Actions, or add `{ "command": "unbound", "keys": "alt+enter" }` to your actions.
+- Still nothing? Run `claude --debug`, press Option/Alt+Enter on `/<skill>`, and look in the debug log for `skill-modes: prompt.edit not taken as Alt+Enter`: it shows the key your terminal sent. No such line means the key never reached the prompt as an edit.
 
 ## Known limits
 

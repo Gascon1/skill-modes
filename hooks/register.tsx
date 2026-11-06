@@ -20,6 +20,7 @@ import {
   listing,
   suggest,
   modeToken,
+  missedModeKey,
   resolveToken,
   enteredToast,
   ambiguousToast,
@@ -83,7 +84,104 @@ async function scanSkills($: $T): Promise<ScannedSkill[]> {
       out.push(s)
     }
   }
+  for (const s of await scanPluginSkills($)) {
+    if (s.isValid) {
+      if (names.has(s.name)) continue
+      names.add(s.name)
+    }
+    out.push(s)
+  }
   scanCache = { at: await $.clock.now(), skills: out }
+  return out
+}
+
+async function readJson($: $T, path: string): Promise<any> {
+  try {
+    return JSON.parse(await $.fs.read(path))
+  } catch {
+    return null
+  }
+}
+
+async function listDirs($: $T, dir: string): Promise<string[]> {
+  try {
+    return (await $.fs.list(dir))
+      .filter(en => !en.name.startsWith('.') && (en.kind === 'dir' || en.isLink))
+      .map(en => en.name)
+      .sort()
+  } catch {
+    return []
+  }
+}
+
+const under = (p: string, base: string) => p === base || p.startsWith(base + '/')
+
+/** Installed plugins (user scope, or project/local scope for this checkout) and account-synced plugins. */
+async function pluginDirs($: $T): Promise<{ name: string | null; dir: string }[]> {
+  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (home ? home + '/.claude' : undefined)
+  if (!config) return []
+  const base = normPath(config) + '/plugins'
+  const here = [normPath(await $.session.cwd()), normPath(await $.session.root())]
+  const out: { name: string | null; dir: string }[] = []
+  const inst = await readJson($, `${base}/installed_plugins.json`)
+  for (const [key, rows] of Object.entries((inst?.plugins ?? {}) as Record<string, any[]>)) {
+    for (const r of Array.isArray(rows) ? rows : []) {
+      if (typeof r?.installPath !== 'string') continue
+      if (typeof r.projectPath === 'string' && !here.some(h => under(h, normPath(r.projectPath)))) continue
+      out.push({ name: key.split('@')[0] ?? null, dir: normPath(r.installPath) })
+    }
+  }
+  for (const a of await listDirs($, `${base}/synced`)) {
+    for (const b of await listDirs($, `${base}/synced/${a}`)) out.push({ name: null, dir: `${base}/synced/${a}/${b}` })
+  }
+  return out
+}
+
+async function scanPluginSkills($: $T): Promise<ScannedSkill[]> {
+  let enabled: { name: string; plugin?: string }[] | null = null
+  try {
+    enabled = (await $.command.list()).filter(c => c.source === 'plugin')
+  } catch {}
+  const isEnabled = (plugin: string, skill: string, folder: string) =>
+    enabled === null ||
+    enabled.some(
+      c =>
+        c.name === `${plugin}:${skill}` ||
+        c.name === `${plugin}:${folder}` ||
+        (c.plugin === plugin && (c.name === skill || c.name === folder)),
+    )
+  const out: ScannedSkill[] = []
+  const seen = new Set<string>()
+  for (const p of await pluginDirs($)) {
+    if (seen.has(p.dir)) continue
+    seen.add(p.dir)
+    const manifest = await readJson($, `${p.dir}/.claude-plugin/plugin.json`)
+    const plugin: string | null = typeof manifest?.name === 'string' ? manifest.name : p.name
+    if (!plugin || plugin === 'skill-modes') continue
+    const declared = typeof manifest?.skills === 'string' ? [manifest.skills] : Array.isArray(manifest?.skills) ? manifest.skills : []
+    const rels = declared.filter((x: unknown): x is string => typeof x === 'string')
+    if (!rels.includes('./skills') && !rels.includes('skills')) rels.push('./skills')
+    const dirs: string[] = []
+    for (const rel of rels) {
+      const d = normPath(`${p.dir}/${rel.replace(/^\.\//, '')}`)
+      if ((await tryRead($, `${d}/SKILL.md`)) !== null) dirs.push(d)
+      else for (const c of await listDirs($, d)) dirs.push(`${d}/${c}`)
+    }
+    for (const dir of [...new Set(dirs)]) {
+      const path = `${dir}/SKILL.md`
+      const raw = await tryRead($, path)
+      if (raw === null) continue
+      const folder = dir.slice(dir.lastIndexOf('/') + 1)
+      const s = toSkill(parseSkillFile(raw), { folder, dir, path, scope: 'plugin' })
+      if (!s.isValid) {
+        if (isEnabled(plugin, folder, folder)) out.push(s)
+        continue
+      }
+      if (!isEnabled(plugin, s.name, folder)) continue
+      out.push({ ...s, name: s.name.includes(':') ? s.name : `${plugin}:${s.name}` })
+    }
+  }
   return out
 }
 
@@ -279,7 +377,11 @@ export const register: Register = on => {
 
   on('prompt.edit', async ($, e, next) => {
     const tok = modeToken(e) // sync; every ordinary keystroke leaves here
-    if (tok === null) return next(e)
+    if (tok === null) {
+      const miss = missedModeKey(e)
+      if (miss) $.ui.log(miss, { to: 'debug' })
+      return next(e)
+    }
     let r: ReturnType<typeof resolveToken>
     try {
       r = resolveToken(await cachedSkills($), tok)
