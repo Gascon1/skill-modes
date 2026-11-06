@@ -4,25 +4,27 @@ import type { SkillModesState } from '../types'
 import {
   INITIAL,
   afterDelivery,
-  ancestors,
   enterMode,
   exitMode,
   glyph,
-  normColor,
   isModeKey,
   missedModeKey,
   modeToken,
-  resolveToken,
-  usageScore,
   enteredToast,
   ambiguousToast,
-  parseSkillFile,
   suggest,
-  toSkill,
   type EditLike,
+} from './lib.ts'
+import {
+  ancestors,
+  normColor,
+  parseSkillFile,
+  resolveToken,
+  toSkill,
+  usageScore,
   type ScannedSkill,
   type ValidSkill,
-} from './lib.ts'
+} from './catalog.ts'
 
 const REVIEWER = '/work/app/.claude/skills/reviewer/SKILL.md'
 const WRITER = '/home/u/.claude/skills/writer/SKILL.md'
