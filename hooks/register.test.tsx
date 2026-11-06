@@ -522,6 +522,14 @@ test('activation replies', () => {
 const altEnter = ($: any, text: string) =>
   $.prompt.edit({ origin: { kind: 'composer' }, text, cursor: text.length, start: text.length, end: text.length, inputText: '\n', key: { key: 'return', meta: true } })
 
+test('Alt+Enter on a shared prefix takes the shortest name with no usage history', async ($, on) => {
+  const skill = (n: string) => ({ [`/home/u/.claude/skills/${n}/SKILL.md`]: `---\nname: ${n}\ndescription: d\n---\nB\n` })
+  const w = world(on, { ...skill('animate'), ...skill('animation-performance'), ...skill('animation-vocabulary') })
+  await $.session.start(START)
+  expect(await altEnter($, '/anim')).toEqual({ text: '', cursor: 0 })
+  expect(w.toasts.at(-1)).toBe('◆ animate mode on — attaches to your next message')
+})
+
 test('Enter on /mode takes the exact name, Alt+Enter also takes a prefix', async ($, on) => {
   const w = world(on, { ...baseFiles(), '/home/u/.claude/skills/refactor/SKILL.md': '---\nname: refactor\ndescription: Refactors\n---\nREF\n' })
   await $.session.start(START)
