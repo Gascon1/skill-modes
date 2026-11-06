@@ -15,13 +15,14 @@ import {
   suggest,
   modeToken,
   missedModeKey,
-  enteredToast,
-  ambiguousToast,
+  activationText,
+  activationToast,
+  type Activation,
   glyph,
   isInitial,
   sameActive,
 } from './lib.ts'
-import { listSkills, forgetSkills, searchedFolders, findSkill, loadSkill, type Resolved } from './catalog.ts'
+import { listSkills, forgetSkills, searchedFolders, findSkill, loadSkill } from './catalog.ts'
 
 const mode = atom({ plugin: 'skill-modes', key: 'mode' } as const, INITIAL, { shape: 'mode-1' })
 type $T = EngineInterface
@@ -56,6 +57,15 @@ async function prepare($: $T, s: SkillModesState): Promise<{ state: SkillModesSt
     }
   }
   return { state, body: loaded.body }
+}
+
+async function activate($: $T, token: string, match: 'exact' | 'prefix'): Promise<Activation> {
+  const r = await findSkill($, token, match)
+  if (r.kind !== 'skill') return r
+  const skill = r.skill
+  let out!: ReturnType<typeof enterMode>
+  await commit($, cur => (out = enterMode(cur, skill)).state)
+  return { kind: 'on', skill, outcome: out.outcome, left: out.left, attachesNext: out.state.pendingAttach === 'enter' }
 }
 
 async function prune($: $T) {
@@ -122,19 +132,7 @@ export const register: Register = on => {
           : `**${r.name}** mode off.`,
       }
     }
-    const found = await findSkill($, arg, 'exact')
-    if (found.kind === 'invalid') {
-      const k = found.skill
-      return { text: `"${k.folder}" can't be used as a mode: ${k.problem} (${k.path}).`, exitCode: 1 }
-    }
-    if (found.kind !== 'skill') return { text: `No skill named "${arg}". Run /mode to list the skills you can use as a mode.`, exitCode: 1 }
-    const hit = found.skill
-    let r!: ReturnType<typeof enterMode>
-    await commit($, cur => (r = enterMode(cur, hit)).state)
-    if (r.outcome === 'already') return { text: `Already in the **${hit.name}** mode.` }
-    return {
-      text: `${r.left ? `Left the **${r.left}** mode. ` : ''}${glyph(hit.icon)} **${hit.name}** mode on. The skill is attached to your next message and stays on every turn until /mode off or another /mode.`,
-    }
+    return activationText(await activate($, arg, 'exact'), arg)
   }).catch(() => ({ text: 'skill-modes: /mode failed (see claude --debug).' }))
 
   on('prompt.submit', async ($, e, next) => {
@@ -193,30 +191,16 @@ export const register: Register = on => {
       if (miss) $.ui.log(miss, { to: 'debug' })
       return next(e)
     }
-    let r: Resolved
+    let a: Activation
     try {
-      r = await findSkill($, tok, 'prefix')
+      a = await activate($, tok, 'prefix')
     } catch {
       return next(e)
     }
-    if (r.kind === 'none') return next(e)
-    if (r.kind === 'invalid') {
-      $.ui.toast(`"${r.skill.folder}" can't be used as a mode: ${r.skill.problem}`)
-      return { text: e.text, cursor: e.cursor }
-    }
-    if (r.kind === 'ambiguous') {
-      $.ui.toast(ambiguousToast(tok, r.names))
-      return { text: e.text, cursor: e.cursor }
-    }
-    const hit = r.skill
-    let out!: ReturnType<typeof enterMode>
-    try {
-      await commit($, cur => (out = enterMode(cur, hit)).state)
-    } catch {
-      return next(e)
-    }
-    $.ui.toast(enteredToast(hit, out))
-    return { text: '', cursor: 0 }
+    const toast = activationToast(a, tok)
+    if (toast === null) return next(e)
+    $.ui.toast(toast)
+    return a.kind === 'on' ? { text: '', cursor: 0 } : { text: e.text, cursor: e.cursor }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

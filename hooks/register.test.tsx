@@ -10,8 +10,8 @@ import {
   isModeKey,
   missedModeKey,
   modeToken,
-  enteredToast,
-  ambiguousToast,
+  activationToast,
+  activationText,
   suggest,
   type EditLike,
 } from './lib.ts'
@@ -517,15 +517,17 @@ test('resolveToken', () => {
   expect(resolveToken(skills, 'compact')).toEqual({ kind: 'none' })
 })
 
-test('toasts', () => {
+test('activation replies', () => {
   const a: ValidSkill = { isValid: true, name: 'a', description: 'd', icon: null, color: null, folder: 'a', dir: '/s/a', path: '/s/a/SKILL.md', scope: 'user' }
-  expect(enteredToast(a, enterMode(INITIAL, a))).toBe('◆ a mode on — attaches to your next message')
-  const on = enterMode(INITIAL, a).state
-  expect(enteredToast(a, enterMode(on, a))).toBe('Already in the a mode')
-  const delivered = { ...on, pendingAttach: null }
-  const back = enterMode(exitMode(delivered).state, a)
-  expect(enteredToast(a, back)).toBe('◆ a mode on')
-  expect(ambiguousToast('re', ['a', 'b', 'c', 'd', 'e'])).toBe('/re matches a, b, c, d, … — type more of the name')
+  const on = (outcome: 'entered' | 'switched' | 'already', attachesNext: boolean, left?: string) => ({ kind: 'on', skill: a, outcome, left, attachesNext }) as const
+  expect(activationToast(on('entered', true), 'a')).toBe('◆ a mode on — attaches to your next message')
+  expect(activationToast(on('already', false), 'a')).toBe('Already in the a mode')
+  expect(activationToast(on('entered', false), 'a')).toBe('◆ a mode on')
+  expect(activationToast(on('switched', true, 'b'), 'a')).toBe('Left b · ◆ a mode on — attaches to your next message')
+  expect(activationToast({ kind: 'ambiguous', names: ['a', 'b', 'c', 'd', 'e'] }, 're')).toBe('/re matches a, b, c, d, … — type more of the name')
+  expect(activationToast({ kind: 'none' }, 'zz')).toBeNull()
+  expect(activationText(on('switched', true, 'b'), 'a').text).toBe('Left the **b** mode. ◆ **a** mode on. The skill is attached to your next message and stays on every turn until /mode off or another /mode.')
+  expect(activationText({ kind: 'none' }, 'zz')).toEqual({ text: 'No skill named "zz". Run /mode to list the skills you can use as a mode.', exitCode: 1 })
 })
 
 const altEnter = ($: any, text: string) =>
