@@ -63,3 +63,11 @@ claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)
