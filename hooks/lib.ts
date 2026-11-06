@@ -305,10 +305,6 @@ export function blocksFor(s: SkillModesState, body: string | null): string[] {
 
 // ---- text ----
 
-export function statusText(a: SkillModesActive, s: SkillModesState): string {
-  return `${glyph(a.icon)} ${a.name} mode${s.pendingAttach === 'enter' ? ' (attaches to your next message)' : ''} · /mode off to exit`
-}
-
 export function listing(s: SkillModesState, skills: ScannedSkill[], roots: string[], home: string | undefined): string {
   const tilde = (p: string) => (home && normPath(home) !== '' && p.startsWith(normPath(home) + '/') ? '~' + p.slice(normPath(home).length) : p)
   const lines: string[] = []
@@ -406,8 +402,26 @@ export type Resolved =
   | { kind: 'ambiguous'; names: string[] }
   | { kind: 'none' }
 
-/** Exact (findSkill), then a unique case-insensitive prefix of a valid skill's name or folder. */
-export function resolveToken(skills: ScannedSkill[], tok: string): Resolved {
+/** `skillUsage` from Claude Code's global config: what the typeahead ranks its rows by. */
+export type SkillUsage = Record<string, { usageCount?: number; lastUsedAt?: number }>
+
+const HALF_LIFE_MS = 30 * 86_400_000
+
+/** Uses decayed by age, so a skill used often a while ago still beats one used once yesterday, as the typeahead orders them. */
+export function usageScore(s: ValidSkill, usage: SkillUsage, now: number): number {
+  const keys = new Set([s.name, s.folder, s.name.slice(s.name.indexOf(':') + 1)])
+  let score = 0
+  for (const k of keys) {
+    const u = usage[k]
+    if (!u || typeof u.usageCount !== 'number') continue
+    const age = Math.max(0, now - (u.lastUsedAt ?? 0))
+    score += u.usageCount * Math.pow(0.5, age / HALF_LIFE_MS)
+  }
+  return score
+}
+
+/** Exact (findSkill), then a unique case-insensitive prefix of a valid skill's name or folder; with `rank`, the clear top-ranked of several. */
+export function resolveToken(skills: ScannedSkill[], tok: string, rank?: (s: ValidSkill) => number): Resolved {
   const exact = findSkill(skills, tok)
   if (exact) return exact.isValid ? { kind: 'skill', skill: exact } : { kind: 'invalid', skill: exact }
   const t = tok.replace(/^\//, '').toLowerCase()
@@ -416,6 +430,11 @@ export function resolveToken(skills: ScannedSkill[], tok: string): Resolved {
     (s): s is ValidSkill => s.isValid && (s.name.toLowerCase().startsWith(t) || s.folder.toLowerCase().startsWith(t)),
   )
   if (hits.length === 1) return { kind: 'skill', skill: hits[0] as ValidSkill }
+  if (hits.length > 1 && rank) {
+    const scored = hits.map(skill => ({ skill, score: rank(skill) })).sort((a, b) => b.score - a.score)
+    const [top, second] = scored as [{ skill: ValidSkill; score: number }, { score: number }]
+    if (top.score > 0 && top.score > second.score) return { kind: 'skill', skill: top.skill }
+  }
   if (hits.length > 1) return { kind: 'ambiguous', names: hits.map(s => s.name) }
   return { kind: 'none' }
 }

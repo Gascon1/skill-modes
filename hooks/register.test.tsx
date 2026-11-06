@@ -13,6 +13,7 @@ import {
   missedModeKey,
   modeToken,
   resolveToken,
+  usageScore,
   enteredToast,
   ambiguousToast,
   parseSkillFile,
@@ -179,7 +180,7 @@ test('attach on the first message, reminder after', async ($, on) => {
   await $.session.start(START)
   const r = await run($, 'reviewer')
   expect(r.text).toMatch(/reviewer\*\* mode on/)
-  expect(w.last()).toMatch(/🔍 reviewer mode \(attaches/)
+  expect(w.statuses).toEqual([])
   await submit($, 'hi')
   const c0 = w.sent[0]!.context!
   expect(c0.length).toBe(1)
@@ -192,7 +193,7 @@ test('attach on the first message, reminder after', async ($, on) => {
   expect(c1[0]).toContain('event="reminder"')
   expect(c1[0]).toContain(REVIEWER)
   expect(c1[0]).not.toContain('REVIEW-BODY')
-  expect(w.last()).not.toMatch(/attaches/)
+  expect(w.statuses).toEqual([])
 })
 
 test('exit after delivery tells the agent once', async ($, on) => {
@@ -208,7 +209,7 @@ test('exit after delivery tells the agent once', async ($, on) => {
   expect(c[0]).toContain('event="exited"')
   await submit($, 'later')
   expect(w.sent[2]!.context).toBeUndefined()
-  expect(w.last()).toBeUndefined()
+  expect(w.statuses).toEqual([])
 })
 
 test('exit before delivery says nothing', async ($, on) => {
@@ -275,7 +276,7 @@ test('a deleted skill ends the mode', async ($, on) => {
   expect(c[0]).toContain('event="ended"')
   expect(c[0]).toMatch(/no longer exists/)
   expect(w.toasts.join('\n')).toMatch(/gone/)
-  expect(w.last()).toBeUndefined()
+  expect(w.statuses).toEqual([])
 })
 
 test('a moved skill keeps the mode on its new path', async ($, on) => {
@@ -330,6 +331,15 @@ const PROPS = {
 } as const
 const BAND = { plugin: 'skill-modes', component: 'AbovePrompt', requestId: 'skill-modes' } as const
 
+test('the band does not say the skill attaches later', async ($, on) => {
+  world(on, baseFiles())
+  await $.session.start(START)
+  await run($, 'reviewer')
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: PROPS })
+  expect(await ui.find({ type: 'Text', text: /attaches/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`the band on ${surface}`, async ($, on) => {
     const w = world(on, baseFiles())
@@ -341,7 +351,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: /🔍 reviewer/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /engine/ })).toBeDefined()
     await ui.press({ key: 'exit-mode' })
-    expect(w.last()).toBeUndefined()
+    expect(w.statuses).toEqual([])
     await ui.unmount()
     await submit($, 'next')
     expect(w.sent[1]!.context![0]).toContain('event="exited"')
@@ -376,7 +386,7 @@ test('a saved mode is restored on resume', async ($, on) => {
   }
   const w = world(on, baseFiles(), { 'mode:s1': { state, savedAt: 1 } })
   await $.session.start(START)
-  expect(w.last()).toMatch(/🔍 reviewer mode/)
+  expect(w.statuses).toEqual([])
   await submit($, 'hi')
   expect(w.sent[0]!.context!.length).toBe(1)
   expect(w.sent[0]!.context![0]).toContain('event="reminder"')
@@ -400,7 +410,7 @@ test('/clear resets the mode', async ($, on) => {
   await run($, 'reviewer')
   await submit($, 'hi')
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
-  expect(w.last()).toBeUndefined()
+  expect(w.statuses).toEqual([])
   await submit($, 'fresh')
   expect(w.sent[1]!.context).toBeUndefined()
 })
@@ -474,6 +484,21 @@ test('plugin skills are listed and usable as modes', async ($, on) => {
   await submit($, 'hi')
   expect(w.sent[0]!.context![0]).toContain('TDD-BODY')
   expect((await run($, 'mp:grill')).text).toMatch(/mp:grill\*\* mode on/)
+})
+
+test('an ambiguous prefix takes the skill the typeahead ranks first', () => {
+  const v = (name: string, folder: string): ValidSkill => ({ isValid: true, name, description: 'd', icon: null, color: null, folder, dir: `/p/${folder}`, path: `/p/${folder}/SKILL.md`, scope: 'plugin' })
+  const skills: ScannedSkill[] = [v('pstack:poteto-help', 'poteto-help'), v('pstack:poteto-mode', 'poteto-mode')]
+  const now = 100 * 86_400_000
+  const day = (d: number) => now - d * 86_400_000
+  const rank = (u: Record<string, { usageCount: number; lastUsedAt: number }>) => (s: ValidSkill) => usageScore(s, u, now)
+  expect(resolveToken(skills, 'poteto')).toMatchObject({ kind: 'ambiguous' })
+  expect(resolveToken(skills, 'poteto', rank({ 'pstack:poteto-mode': { usageCount: 44, lastUsedAt: day(0) } })))
+    .toMatchObject({ kind: 'skill', skill: { name: 'pstack:poteto-mode' } })
+  expect(resolveToken(skills, 'poteto', rank({}))).toMatchObject({ kind: 'ambiguous' })
+  const g = [v('m:grill-me', 'grill-me'), v('m:grill-with-docs', 'grill-with-docs')]
+  expect(resolveToken(g, 'grill', rank({ 'grill-me': { usageCount: 8, lastUsedAt: day(72) }, 'm:grill-with-docs': { usageCount: 1, lastUsedAt: day(1) } })))
+    .toMatchObject({ kind: 'skill', skill: { name: 'm:grill-me' } })
 })
 
 test('resolveToken', () => {

@@ -52,7 +52,7 @@ claude plugin install skill-modes --marketplace Gascon1/skill-modes
 
 ## Known limits
 
-- The highlighted autocomplete row is not detectable, so Option/Alt+Enter uses the token you typed, not the selected suggestion.
+- The highlighted autocomplete row is not detectable. When `/<prefix>` matches several skills, Option/Alt+Enter picks the one you use most (usage decayed by age, from `skillUsage` in `~/.claude.json`), which is how the typeahead ranks them too. A tie is refused as ambiguous.
 - The `prompt.edit` hook used for Option/Alt+Enter may be terminal-only; `/mode <skill>` works everywhere.
 - No tool or model gating (the skill's `allowed-tools` and model settings are not applied), matching Cursor.
 

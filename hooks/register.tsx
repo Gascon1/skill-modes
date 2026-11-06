@@ -16,12 +16,13 @@ import {
   afterDelivery,
   markCompacted,
   blocksFor,
-  statusText,
   listing,
   suggest,
   modeToken,
   missedModeKey,
   resolveToken,
+  usageScore,
+  type SkillUsage,
   enteredToast,
   ambiguousToast,
   glyph,
@@ -93,6 +94,13 @@ async function scanSkills($: $T): Promise<ScannedSkill[]> {
   }
   scanCache = { at: await $.clock.now(), skills: out }
   return out
+}
+
+async function skillUsage($: $T): Promise<SkillUsage> {
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+  const cfg = dir ? await readJson($, `${normPath(dir)}/.claude.json`) : null
+  const u = cfg?.skillUsage
+  return u && typeof u === 'object' ? (u as SkillUsage) : {}
 }
 
 async function readJson($: $T, path: string): Promise<any> {
@@ -190,8 +198,6 @@ async function cachedSkills($: $T): Promise<ScannedSkill[]> {
   return scanSkills($)
 }
 
-const showStatus = ($: $T, s: SkillModesState) => $.ui.status(s.active ? statusText(s.active, s) : undefined)
-
 async function commit($: $T, change: (s: SkillModesState) => SkillModesState): Promise<SkillModesState> {
   const s = await update($, mode, change)
   try {
@@ -199,7 +205,6 @@ async function commit($: $T, change: (s: SkillModesState) => SkillModesState): P
     if (s.active === null && s.pendingExit === null) await $.store.delete(key)
     else await $.store.set(key, { state: s, savedAt: await $.clock.now() })
   } catch {}
-  showStatus($, s)
   return s
 }
 
@@ -274,7 +279,6 @@ export const register: Register = on => {
         }
       } catch {}
     }
-    showStatus($, s)
     await prune($)
     return next(e)
   })
@@ -285,7 +289,6 @@ export const register: Register = on => {
         await $.store.delete(`mode:${await $.session.id()}`)
       } catch {}
       await update($, mode, () => INITIAL)
-      $.ui.status(undefined)
       scanCache = null
     }
     return next(e)
@@ -384,7 +387,13 @@ export const register: Register = on => {
     }
     let r: ReturnType<typeof resolveToken>
     try {
-      r = resolveToken(await cachedSkills($), tok)
+      const skills = await cachedSkills($)
+      r = resolveToken(skills, tok)
+      if (r.kind === 'ambiguous') {
+        const usage = await skillUsage($)
+        const now = await $.clock.now()
+        r = resolveToken(skills, tok, s => usageScore(s, usage, now))
+      }
     } catch {
       return next(e)
     }
@@ -417,7 +426,7 @@ export const register: Register = on => {
       <Box flexDirection="row">
         <Text color={a.color ?? 'suggestion'} weight="bold">{`${glyph(a.icon)} ${a.name}`}</Text>
         <Text dimColor wrap="truncate-end">
-          {s.pendingAttach === 'enter' ? ' mode · attaches to your next message ' : ' mode '}
+          {' mode '}
         </Text>
         <Button
           key="exit-mode"
