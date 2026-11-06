@@ -374,9 +374,9 @@ function exactMatch(skills: ScannedSkill[], arg: string): ScannedSkill | undefin
   )
 }
 
-const HALF_LIFE_MS = 30 * 86_400_000
+const HALF_LIFE_MS = 7 * 86_400_000
 
-/** Uses decayed by age, so a skill used often a while ago still beats one used once yesterday, as the typeahead orders them. */
+/** The typeahead's usage boost: uses halved each week of disuse, never below a tenth. */
 export function usageScore(s: ValidSkill, usage: SkillUsage, now: number): number {
   const keys = new Set([s.name, s.folder, s.name.slice(s.name.indexOf(':') + 1)])
   let score = 0
@@ -384,26 +384,30 @@ export function usageScore(s: ValidSkill, usage: SkillUsage, now: number): numbe
     const u = usage[k]
     if (!u || typeof u.usageCount !== 'number') continue
     const age = Math.max(0, now - (u.lastUsedAt ?? 0))
-    score += u.usageCount * Math.pow(0.5, age / HALF_LIFE_MS)
+    score += u.usageCount * Math.max(Math.pow(0.5, age / HALF_LIFE_MS), 0.1)
   }
   return score
 }
 
-/** Exact (name, then folder), then a unique case-insensitive prefix of a valid skill's name or folder; with `rank`, the clear top-ranked of several. */
+/** The shortest of a skill's names that starts with `t`, the typeahead's first key after an exact match. */
+function prefixLength(s: ValidSkill, t: string): number {
+  const names = [s.name, s.name.slice(s.name.indexOf(':') + 1), s.folder].map(n => n.toLowerCase())
+  return Math.min(...names.map(n => (n.startsWith(t) ? n.length : Infinity)))
+}
+
+/** Exact (name, then folder), then the prefix match the typeahead ranks first: shortest name, then `rank`. A tie on both is ambiguous. */
 export function resolveToken(skills: ScannedSkill[], tok: string, rank?: (s: ValidSkill) => number): Resolved {
   const exact = exactMatch(skills, tok)
   if (exact) return exact.isValid ? { kind: 'skill', skill: exact } : { kind: 'invalid', skill: exact }
   const t = tok.replace(/^\//, '').toLowerCase()
   if (t === '') return { kind: 'none' }
-  const hits = skills.filter(
-    (s): s is ValidSkill => s.isValid && (s.name.toLowerCase().startsWith(t) || s.folder.toLowerCase().startsWith(t)),
-  )
-  if (hits.length === 1) return { kind: 'skill', skill: hits[0] as ValidSkill }
-  if (hits.length > 1 && rank) {
-    const scored = hits.map(skill => ({ skill, score: rank(skill) })).sort((a, b) => b.score - a.score)
-    const [top, second] = scored as [{ skill: ValidSkill; score: number }, { score: number }]
-    if (top.score > 0 && top.score > second.score) return { kind: 'skill', skill: top.skill }
-  }
-  if (hits.length > 1) return { kind: 'ambiguous', names: hits.map(s => s.name) }
-  return { kind: 'none' }
+  const hits = skills
+    .filter((s): s is ValidSkill => s.isValid)
+    .map(skill => ({ skill, key: [prefixLength(skill, t), -(rank?.(skill) ?? 0)] as const }))
+    .filter(h => h.key[0] !== Infinity)
+  if (hits.length === 0) return { kind: 'none' }
+  const sorted = [...hits].sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1])
+  const [top, second] = sorted as [(typeof hits)[number], (typeof hits)[number] | undefined]
+  if (!second || top.key[0] !== second.key[0] || top.key[1] !== second.key[1]) return { kind: 'skill', skill: top.skill }
+  return { kind: 'ambiguous', names: hits.map(h => h.skill.name) }
 }
