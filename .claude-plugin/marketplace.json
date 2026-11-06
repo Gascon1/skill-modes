@@ -1,0 +1,6 @@
+{
+  "name": "skill-modes",
+  "owner": { "name": "Mikel Gascon" },
+  "description": "Use any skill as a mode, like Cursor's Custom Modes.",
+  "plugins": [{ "name": "skill-modes", "source": "./" }]
+}
