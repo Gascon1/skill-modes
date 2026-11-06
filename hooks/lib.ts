@@ -1,183 +1,19 @@
 import type { PromptAutocompleteSuggestion } from 'claude-code'
 import type { SkillModesActive, SkillModesExit, SkillModesState } from '../types'
+import { normPath, type InvalidSkill, type ScannedSkill, type ValidSkill } from './catalog.ts'
 
 export const COMMAND = 'mode'
 export const OFF_WORDS = ['off', 'exit', 'none', 'stop']
 export const DEFAULT_GLYPH = '◆'
 export const INITIAL: SkillModesState = { active: null, pendingAttach: null, pendingExit: null }
 
-export type SkillScope = 'project' | 'user' | 'plugin'
-export type ValidSkill = {
-  isValid: true
-  name: string
-  description: string
-  icon: string | null
-  color: string | null
-  folder: string
-  dir: string
-  path: string
-  scope: SkillScope
-}
-export type InvalidSkill = { isValid: false; folder: string; path: string; scope: SkillScope; problem: string }
-export type ScannedSkill = ValidSkill | InvalidSkill
-export type ParsedSkill = { fields: Record<string, string>; body: string; problem?: string }
-
 export const isInitial = (s: SkillModesState) =>
   s.active === null && s.pendingAttach === null && s.pendingExit === null
-
-// ---- paths ----
-
-export function normPath(p: string): string {
-  let r = p.replace(/\\/g, '/')
-  while (r.length > 1 && r.endsWith('/')) r = r.slice(0, -1)
-  return r
-}
-
-export function ancestors(start: string, stopAt?: string): string[] {
-  const out: string[] = []
-  let cur = normPath(start)
-  const stop = stopAt ? normPath(stopAt) : undefined
-  for (let i = 0; i < 64; i++) {
-    if (cur === '' || cur === '/' || /^[A-Za-z]:$/.test(cur)) break
-    if (stop !== undefined && cur === stop) break
-    out.push(cur)
-    const idx = cur.lastIndexOf('/')
-    if (idx < 0) break
-    cur = idx === 0 ? '/' : cur.slice(0, idx)
-  }
-  return out
-}
-
-// ---- frontmatter ----
-
-export function parseSkillFile(raw: string): ParsedSkill {
-  const text = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
-  const lines = text.split('\n')
-  if (lines[0]?.trimEnd() !== '---') {
-    return { fields: {}, body: text, problem: 'SKILL.md has no frontmatter block (--- on the first line)' }
-  }
-  let close = -1
-  for (let i = 1; i < lines.length; i++) {
-    const l = (lines[i] ?? '').trimEnd()
-    if (l === '---' || l === '...') {
-      close = i
-      break
-    }
-  }
-  if (close < 0) {
-    return { fields: {}, body: '', problem: 'the frontmatter block is not closed with ---' }
-  }
-  const fm = lines.slice(1, close)
-  const fields: Record<string, string> = {}
-  for (let i = 0; i < fm.length; i++) {
-    const line = fm[i] ?? ''
-    const m = /^([A-Za-z0-9_-]+)\s*:(?:\s+(.*))?$/.exec(line)
-    if (!m) continue
-    const key = m[1] as string
-    const value = (m[2] ?? '').trim()
-    const cont: string[] = []
-    let j = i + 1
-    while (j < fm.length) {
-      const c = fm[j] ?? ''
-      if (c.trim() === '' || /^\s/.test(c)) {
-        cont.push(c)
-        j++
-      } else break
-    }
-    i = j - 1
-    while (cont.length > 0 && (cont[cont.length - 1] ?? '').trim() === '') cont.pop()
-
-    if (/^[|>][+-]?\d*$|^[|>]\d*[+-]?$/.test(value)) {
-      const indents = cont.filter(c => c.trim() !== '').map(c => (/^\s*/.exec(c) as RegExpExecArray)[0].length)
-      const ind = indents.length ? Math.min(...indents) : 0
-      const ls = cont.map(c => (c.trim() === '' ? '' : c.slice(ind)))
-      if (value.startsWith('|')) {
-        fields[key] = ls.join('\n').trimEnd()
-      } else {
-        let acc = ''
-        let pendingBreak = false
-        for (const l of ls) {
-          if (l === '') {
-            acc += '\n'
-            pendingBreak = false
-            continue
-          }
-          if (acc !== '' && !acc.endsWith('\n') && !pendingBreak) acc += ' '
-          acc += l
-        }
-        fields[key] = acc.trimEnd()
-      }
-      continue
-    }
-    if (value.startsWith('"')) {
-      const q = /^"((?:[^"\\]|\\.)*)"/.exec(value)
-      if (q) {
-        let v = q[1] as string
-        try {
-          v = JSON.parse('"' + v + '"') as string
-        } catch {}
-        fields[key] = v
-        continue
-      }
-    }
-    if (value.startsWith("'")) {
-      const q = /^'((?:[^']|'')*)'/.exec(value)
-      if (q) {
-        fields[key] = (q[1] as string).replace(/''/g, "'")
-        continue
-      }
-    }
-    if (value === '') continue
-    const parts = [value, ...cont.map(c => c.trim()).filter(c => c !== '')]
-    fields[key] = parts.join(' ').replace(/\s+#.*$/, '').trim()
-  }
-  return { fields, body: lines.slice(close + 1).join('\n') }
-}
-
-export function normColor(c: string | undefined | null): string | null {
-  const t = (c ?? '').trim()
-  if (/^#?[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/i.test(t)) return t.startsWith('#') ? t : '#' + t
-  if (/^[a-z]+$/i.test(t)) return t
-  return null
-}
 
 export function glyph(icon: string | null | undefined): string {
   const t = (icon ?? '').trim()
   if (t === '' || /^[A-Za-z0-9_-]+$/.test(t) || Array.from(t).length > 4) return DEFAULT_GLYPH
   return t
-}
-
-export function toSkill(
-  parsed: ParsedSkill,
-  where: { folder: string; dir: string; path: string; scope: SkillScope },
-): ScannedSkill {
-  const base = { folder: where.folder, dir: where.dir, path: where.path, scope: where.scope }
-  if (parsed.problem) return { isValid: false, folder: base.folder, path: base.path, scope: base.scope, problem: parsed.problem }
-  const name = (parsed.fields.name ?? '').trim()
-  const description = (parsed.fields.description ?? '').trim()
-  let problem: string | null = null
-  if (!name && !description) problem = 'frontmatter has no name and no description'
-  else if (!name) problem = 'frontmatter has no name'
-  else if (!description) problem = 'frontmatter has no description'
-  if (problem) return { isValid: false, folder: base.folder, path: base.path, scope: base.scope, problem }
-  return {
-    isValid: true,
-    name,
-    description,
-    icon: parsed.fields.icon?.trim() || null,
-    color: normColor(parsed.fields.color),
-    ...base,
-  }
-}
-
-export function findSkill(skills: ScannedSkill[], arg: string): ScannedSkill | undefined {
-  const a = arg.replace(/^\//, '')
-  const valid = skills.filter((s): s is ValidSkill => s.isValid)
-  return (
-    valid.find(s => s.name === a) ??
-    valid.find(s => s.name.toLowerCase() === a.toLowerCase()) ??
-    skills.find(s => s.folder === a)
-  )
 }
 
 // ---- reducers ----
@@ -392,49 +228,6 @@ export function modeToken(e: EditLike): string | null {
   if (!s) return null
   const tok = s[1] as string
   return tok === COMMAND ? null : tok
-}
-
-export type Resolved =
-  | { kind: 'skill'; skill: ValidSkill }
-  | { kind: 'invalid'; skill: InvalidSkill }
-  | { kind: 'ambiguous'; names: string[] }
-  | { kind: 'none' }
-
-/** `skillUsage` from Claude Code's global config: what the typeahead ranks its rows by. */
-export type SkillUsage = Record<string, { usageCount?: number; lastUsedAt?: number }>
-
-const HALF_LIFE_MS = 30 * 86_400_000
-
-/** Uses decayed by age, so a skill used often a while ago still beats one used once yesterday, as the typeahead orders them. */
-export function usageScore(s: ValidSkill, usage: SkillUsage, now: number): number {
-  const keys = new Set([s.name, s.folder, s.name.slice(s.name.indexOf(':') + 1)])
-  let score = 0
-  for (const k of keys) {
-    const u = usage[k]
-    if (!u || typeof u.usageCount !== 'number') continue
-    const age = Math.max(0, now - (u.lastUsedAt ?? 0))
-    score += u.usageCount * Math.pow(0.5, age / HALF_LIFE_MS)
-  }
-  return score
-}
-
-/** Exact (findSkill), then a unique case-insensitive prefix of a valid skill's name or folder; with `rank`, the clear top-ranked of several. */
-export function resolveToken(skills: ScannedSkill[], tok: string, rank?: (s: ValidSkill) => number): Resolved {
-  const exact = findSkill(skills, tok)
-  if (exact) return exact.isValid ? { kind: 'skill', skill: exact } : { kind: 'invalid', skill: exact }
-  const t = tok.replace(/^\//, '').toLowerCase()
-  if (t === '') return { kind: 'none' }
-  const hits = skills.filter(
-    (s): s is ValidSkill => s.isValid && (s.name.toLowerCase().startsWith(t) || s.folder.toLowerCase().startsWith(t)),
-  )
-  if (hits.length === 1) return { kind: 'skill', skill: hits[0] as ValidSkill }
-  if (hits.length > 1 && rank) {
-    const scored = hits.map(skill => ({ skill, score: rank(skill) })).sort((a, b) => b.score - a.score)
-    const [top, second] = scored as [{ skill: ValidSkill; score: number }, { score: number }]
-    if (top.score > 0 && top.score > second.score) return { kind: 'skill', skill: top.skill }
-  }
-  if (hits.length > 1) return { kind: 'ambiguous', names: hits.map(s => s.name) }
-  return { kind: 'none' }
 }
 
 export function enteredToast(
