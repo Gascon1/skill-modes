@@ -230,16 +230,46 @@ export function modeToken(e: EditLike): string | null {
   return tok === COMMAND ? null : tok
 }
 
-export function enteredToast(
-  skill: ValidSkill,
-  r: { state: SkillModesState; outcome: 'entered' | 'switched' | 'already'; left?: string },
-): string {
-  if (r.outcome === 'already') return `Already in the ${skill.name} mode`
-  const tail = r.state.pendingAttach === 'enter' ? ' — attaches to your next message' : ''
-  return `${r.left ? `Left ${r.left} · ` : ''}${glyph(skill.icon)} ${skill.name} mode on${tail}`
+/** What turning a skill on came to, for the surface that asked to say in its own words. */
+export type Activation =
+  | { kind: 'on'; skill: ValidSkill; outcome: 'entered' | 'switched' | 'already'; left?: string; attachesNext: boolean }
+  | { kind: 'invalid'; skill: InvalidSkill }
+  | { kind: 'ambiguous'; names: string[] }
+  | { kind: 'none' }
+
+/** `/mode <tok>`'s reply. */
+export function activationText(a: Activation, tok: string): { text: string; exitCode?: number } {
+  switch (a.kind) {
+    case 'none':
+      return { text: `No skill named "${tok}". Run /mode to list the skills you can use as a mode.`, exitCode: 1 }
+    case 'invalid':
+      return { text: `"${a.skill.folder}" can't be used as a mode: ${a.skill.problem} (${a.skill.path}).`, exitCode: 1 }
+    case 'ambiguous':
+      return { text: ambiguous(tok, a.names), exitCode: 1 }
+    case 'on':
+      if (a.outcome === 'already') return { text: `Already in the **${a.skill.name}** mode.` }
+      return {
+        text: `${a.left ? `Left the **${a.left}** mode. ` : ''}${glyph(a.skill.icon)} **${a.skill.name}** mode on. The skill is attached to your next message and stays on every turn until /mode off or another /mode.`,
+      }
+  }
 }
 
-export function ambiguousToast(tok: string, names: string[]): string {
+/** Alt+Enter's toast; null when the token named no skill and the key should fall through. */
+export function activationToast(a: Activation, tok: string): string | null {
+  switch (a.kind) {
+    case 'none':
+      return null
+    case 'invalid':
+      return `"${a.skill.folder}" can't be used as a mode: ${a.skill.problem}`
+    case 'ambiguous':
+      return ambiguous(tok, a.names)
+    case 'on':
+      if (a.outcome === 'already') return `Already in the ${a.skill.name} mode`
+      return `${a.left ? `Left ${a.left} · ` : ''}${glyph(a.skill.icon)} ${a.skill.name} mode on${a.attachesNext ? ' — attaches to your next message' : ''}`
+  }
+}
+
+function ambiguous(tok: string, names: string[]): string {
   const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? ', …' : '')
   return `/${tok} matches ${shown} — type more of the name`
 }
