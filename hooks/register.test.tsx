@@ -525,3 +525,26 @@ test('toasts', () => {
   expect(enteredToast(a, back)).toBe('◆ a mode on')
   expect(ambiguousToast('re', ['a', 'b', 'c', 'd', 'e'])).toBe('/re matches a, b, c, d, … — type more of the name')
 })
+
+const altEnter = ($: any, text: string) =>
+  $.prompt.edit({ origin: { kind: 'composer' }, text, cursor: text.length, start: text.length, end: text.length, inputText: '\n', key: { key: 'return', meta: true } })
+
+test('Enter on /mode takes the exact name, Alt+Enter also takes a prefix', async ($, on) => {
+  const w = world(on, { ...baseFiles(), '/home/u/.claude/skills/refactor/SKILL.md': '---\nname: refactor\ndescription: Refactors\n---\nREF\n' })
+  await $.session.start(START)
+  expect((await run($, 'rev')).text).toMatch(/No skill named "rev"/)
+  expect(await altEnter($, '/mode rev')).toEqual({ text: '', cursor: 0 })
+  expect(w.toasts.at(-1)).toBe('🔍 reviewer mode on — attaches to your next message')
+  expect(await altEnter($, '/wri')).toEqual({ text: '', cursor: 0 })
+  expect(w.toasts.at(-1)).toBe('Left reviewer · ◆ writer mode on — attaches to your next message')
+  expect(await altEnter($, '/wri')).toEqual({ text: '', cursor: 0 })
+  expect(w.toasts.at(-1)).toBe('Already in the writer mode')
+  expect(await altEnter($, '/re')).toEqual({ text: '/re', cursor: 3 })
+  expect(w.toasts.at(-1)).toBe('/re matches reviewer, refactor — type more of the name')
+  expect(await altEnter($, '/broken')).toEqual({ text: '/broken', cursor: 7 })
+  expect(w.toasts.at(-1)).toBe(`"broken" can't be used as a mode: frontmatter has no description`)
+  await submit($, 'hi')
+  const c = w.sent[0]!.context!
+  expect(c.length).toBe(1)
+  expect(c[0]).toContain('WRITER-BODY')
+})
