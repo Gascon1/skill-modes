@@ -2,10 +2,6 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry } from 'claude-code'
 import type { SkillModesState } from '../types'
 import {
-  INITIAL,
-  afterDelivery,
-  enterMode,
-  exitMode,
   glyph,
   isModeKey,
   missedModeKey,
@@ -25,6 +21,7 @@ import {
   type ScannedSkill,
   type ValidSkill,
 } from './catalog.ts'
+import { INITIAL, afterDelivery, enterMode, exitMode } from './mode.ts'
 
 const REVIEWER = '/work/app/.claude/skills/reviewer/SKILL.md'
 const WRITER = '/home/u/.claude/skills/writer/SKILL.md'

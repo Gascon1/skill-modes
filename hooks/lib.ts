@@ -1,140 +1,15 @@
 import type { PromptAutocompleteSuggestion } from 'claude-code'
-import type { SkillModesActive, SkillModesExit, SkillModesState } from '../types'
+import type { SkillModesState } from '../types'
+import type { Activation } from './mode.ts'
 import { normPath, type InvalidSkill, type ScannedSkill, type ValidSkill } from './catalog.ts'
 
 export const COMMAND = 'mode'
 export const OFF_WORDS = ['off', 'exit', 'none', 'stop']
 export const DEFAULT_GLYPH = '◆'
-export const INITIAL: SkillModesState = { active: null, pendingAttach: null, pendingExit: null }
-
-export const isInitial = (s: SkillModesState) =>
-  s.active === null && s.pendingAttach === null && s.pendingExit === null
-
 export function glyph(icon: string | null | undefined): string {
   const t = (icon ?? '').trim()
   if (t === '' || /^[A-Za-z0-9_-]+$/.test(t) || Array.from(t).length > 4) return DEFAULT_GLYPH
   return t
-}
-
-// ---- reducers ----
-
-export function toActive(s: ValidSkill): SkillModesActive {
-  return {
-    name: s.name,
-    description: s.description,
-    path: s.path,
-    dir: s.dir,
-    scope: s.scope,
-    icon: s.icon,
-    color: s.color,
-  }
-}
-
-export const sameActive = (a: SkillModesActive | null, b: SkillModesActive | null) =>
-  a !== null && b !== null && a.path === b.path
-
-export function enterMode(
-  s: SkillModesState,
-  skill: ValidSkill,
-): { state: SkillModesState; outcome: 'entered' | 'switched' | 'already'; left?: string } {
-  const next = toActive(skill)
-  if (s.active && s.active.path === next.path) return { state: { ...s, active: next }, outcome: 'already' }
-  if (s.pendingExit && s.pendingExit.path === next.path) {
-    return {
-      state: { active: next, pendingAttach: null, pendingExit: null },
-      outcome: s.active ? 'switched' : 'entered',
-      ...(s.active ? { left: s.active.name } : {}),
-    }
-  }
-  const leaving = s.active
-  const pendingExit: SkillModesExit | null =
-    leaving && s.pendingAttach !== 'enter'
-      ? { name: leaving.name, path: leaving.path, reason: 'switch' }
-      : s.pendingExit
-  return {
-    state: { active: next, pendingAttach: 'enter', pendingExit },
-    outcome: leaving ? 'switched' : 'entered',
-    ...(leaving ? { left: leaving.name } : {}),
-  }
-}
-
-export function exitMode(
-  s: SkillModesState,
-  reason: 'user' | 'missing' = 'user',
-): { state: SkillModesState; outcome: 'exited' | 'none'; name?: string; wasDelivered?: boolean } {
-  if (!s.active) return { state: s, outcome: 'none' }
-  const told = s.pendingAttach !== 'enter'
-  return {
-    state: {
-      active: null,
-      pendingAttach: null,
-      pendingExit: told ? { name: s.active.name, path: s.active.path, reason } : s.pendingExit,
-    },
-    outcome: 'exited',
-    name: s.active.name,
-    wasDelivered: told,
-  }
-}
-
-export function afterDelivery(cur: SkillModesState, sent: SkillModesState): SkillModesState {
-  return {
-    pendingAttach:
-      cur.pendingAttach !== null && cur.pendingAttach === sent.pendingAttach && sameActive(cur.active, sent.active)
-        ? null
-        : cur.pendingAttach,
-    pendingExit:
-      cur.pendingExit &&
-      sent.pendingExit &&
-      cur.pendingExit.path === sent.pendingExit.path &&
-      cur.pendingExit.reason === sent.pendingExit.reason
-        ? null
-        : cur.pendingExit,
-    active: cur.active,
-  }
-}
-
-export function markCompacted(s: SkillModesState): SkillModesState {
-  if (s.active && s.pendingAttach === null) return { ...s, pendingAttach: 'reattach' }
-  return s
-}
-
-// ---- context blocks ----
-
-export function attachBlock(a: SkillModesActive, body: string, reason: 'enter' | 'reattach'): string {
-  const lead =
-    reason === 'enter'
-      ? `The user turned on the "${a.name}" mode. Follow the skill below on this message and every later one, until a skill_mode block says the mode is off.`
-      : `The "${a.name}" mode is still on. The summary dropped its skill, so here it is again. Keep following it until a skill_mode block says the mode is off.`
-  return `<skill_mode name="${a.name}" event="${reason === 'enter' ? 'entered' : 'reattached'}">
-${lead}
-Skill file: ${a.path} (relative paths in the skill resolve against its folder)
-
-<skill>
-${body.trim()}
-</skill>
-</skill_mode>`
-}
-
-export function reminderBlock(a: SkillModesActive): string {
-  return `<skill_mode name="${a.name}" event="reminder">
-The "${a.name}" mode is still on: keep following its skill. Re-read ${a.path} when unsure of a rule.
-</skill_mode>`
-}
-
-export function exitBlock(x: SkillModesExit): string {
-  const why = x.reason === 'missing' ? `ended: its skill file (${x.path}) was deleted` : 'is off'
-  return `<skill_mode name="${x.name}" event="${x.reason === 'missing' ? 'ended' : 'exited'}">
-The "${x.name}" mode ${why}. From this message on, its skill applies only if the user asks for it again.
-</skill_mode>`
-}
-
-export function blocksFor(s: SkillModesState, body: string | null): string[] {
-  const out: string[] = []
-  if (s.pendingExit) out.push(exitBlock(s.pendingExit))
-  if (s.active) {
-    out.push(s.pendingAttach ? attachBlock(s.active, body ?? '', s.pendingAttach) : reminderBlock(s.active))
-  }
-  return out
 }
 
 // ---- text ----
@@ -229,13 +104,6 @@ export function modeToken(e: EditLike): string | null {
   const tok = s[1] as string
   return tok === COMMAND ? null : tok
 }
-
-/** What turning a skill on came to, for the surface that asked to say in its own words. */
-export type Activation =
-  | { kind: 'on'; skill: ValidSkill; outcome: 'entered' | 'switched' | 'already'; left?: string; attachesNext: boolean }
-  | { kind: 'invalid'; skill: InvalidSkill }
-  | { kind: 'ambiguous'; names: string[] }
-  | { kind: 'none' }
 
 /** `/mode <tok>`'s reply. */
 export function activationText(a: Activation, tok: string): { text: string; exitCode?: number } {
