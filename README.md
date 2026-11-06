@@ -22,7 +22,7 @@ claude plugin install skill-modes --marketplace Gascon1/skill-modes
 - `/mode <skill>` turns a skill on. Switching to another skill leaves the first.
 - `/mode off` (also `exit`, `none`, `stop`) turns the mode off.
 - Option/Alt+Enter on a draft that is only `/<skill>` or `/mode <tok>` turns the mode on without sending anything. The token can be a unique prefix of the skill name or folder; if it matches several skills you get a toast listing them. (`/mode <skill>` itself needs the exact name or folder.)
-- While a mode is on, a band above the prompt shows the skill (its `icon` and `color` frontmatter are used if set) with an **Exit mode** button, and the status line reads `<name> mode · /mode off to exit`.
+- While a mode is on, a band above the prompt shows the skill (its `icon` and `color` frontmatter are used if set) with an **Exit mode** button.
 - Autocomplete: `/mode ` suggests `off` and skill names; typing `/<prefix>` suggests `/mode <skill>`.
 
 ## How it works
