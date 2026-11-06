@@ -1,16 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry } from 'claude-code'
 import type { SkillModesState } from '../types'
-import {
-  glyph,
-  isModeKey,
-  missedModeKey,
-  modeToken,
-  activationToast,
-  activationText,
-  suggest,
-  type EditLike,
-} from './lib.ts'
+import { activationText, activationToast, glyph } from './replies.ts'
+import { isModeKey, missedModeKey, modeToken, suggest, type EditLike } from './draft.ts'
 import {
   ancestors,
   normColor,

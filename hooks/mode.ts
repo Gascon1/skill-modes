@@ -1,10 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import type { SkillModesActive, SkillModesExit, SkillModesState } from '../types'
-import { COMMAND } from './lib.ts'
 import { findSkill, forgetSkills, listSkills, loadSkill, type InvalidSkill, type ValidSkill } from './catalog.ts'
 
 type $T = EngineInterface
+
+export const COMMAND = 'mode'
+export const OFF_WORDS = ['off', 'exit', 'none', 'stop']
 
 export const INITIAL: SkillModesState = { active: null, pendingAttach: null, pendingExit: null }
 const isInitial = (s: SkillModesState) => s.active === null && s.pendingAttach === null && s.pendingExit === null
