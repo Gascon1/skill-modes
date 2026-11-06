@@ -1,7 +1,20 @@
 import type { Register, RenderElement } from 'claude-code'
-import { COMMAND, OFF_WORDS, listing, suggest, modeToken, missedModeKey, activationText, activationToast, glyph } from './lib.ts'
+import { activationText, activationToast, glyph, listing } from './replies.ts'
+import { missedModeKey, modeToken, suggest } from './draft.ts'
 import { listSkills, searchedFolders } from './catalog.ts'
-import { activate, clearMode, compacted, compactionNote, currentMode, deactivate, deliver, resumeMode, type Activation } from './mode.ts'
+import {
+  COMMAND,
+  OFF_WORDS,
+  activate,
+  clearMode,
+  compacted,
+  compactionNote,
+  currentMode,
+  deactivate,
+  deliver,
+  resumeMode,
+  type Activation,
+} from './mode.ts'
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
