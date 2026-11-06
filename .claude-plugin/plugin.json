@@ -1,6 +1,6 @@
 {
   "name": "skill-modes",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Use any skill as a mode, like Cursor's Custom Modes: /mode <skill> keeps the skill on every turn until /mode off.",
   "types": "./types/index.d.ts",
   "author": {

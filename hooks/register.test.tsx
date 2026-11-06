@@ -232,7 +232,6 @@ test('switching modes', async ($, on) => {
   const c = w.sent[1]!.context!
   expect(c.length).toBe(2)
   expect(c[0]).toContain('event="exited"')
-  expect(c[0]).toContain('switched to another mode')
   expect(c[1]).toContain('event="entered"')
   expect(c[1]).toContain('WRITER-BODY')
 })
@@ -274,7 +273,7 @@ test('a deleted skill ends the mode', async ($, on) => {
   const c = w.sent[1]!.context!
   expect(c.length).toBe(1)
   expect(c[0]).toContain('event="ended"')
-  expect(c[0]).toMatch(/no longer exists/)
+  expect(c[0]).toMatch(/was deleted/)
   expect(w.toasts.join('\n')).toMatch(/gone/)
   expect(w.statuses).toEqual([])
 })
@@ -301,7 +300,7 @@ test('compaction attaches the skill again', async ($, on) => {
   await run($, 'reviewer')
   await submit($, 'hi')
   await $.session.compact({ trigger: 'manual', messages: MSGS })
-  expect(w.seen[0].instructions).toMatch(/reviewer" skill mode/)
+  expect(w.seen[0].instructions).toMatch(/"reviewer" mode is on/)
   await submit($, 'after')
   const c = w.sent[1]!.context!
   expect(c[0]).toContain('event="reattached"')

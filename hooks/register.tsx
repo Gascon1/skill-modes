@@ -363,7 +363,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return next(e)
     const s = await read($, mode)
     if (!s.active) return next(e)
-    const note = `The conversation is in the "${s.active.name}" skill mode (skill file: ${s.active.path}). Keep in the summary that this mode is on and its skill must still be followed.`
+    const note = `Record in the summary that the "${s.active.name}" mode is on (skill file: ${s.active.path}).`
     const res = await next({ ...e, instructions: e.instructions ? `${e.instructions}\n\n${note}` : note })
     if (e.trigger !== 'precompute' && 'messages' in res && res.messages) await commit($, cur => markCompacted(cur))
     return res

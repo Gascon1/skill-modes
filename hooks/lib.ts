@@ -265,15 +265,13 @@ export function markCompacted(s: SkillModesState): SkillModesState {
 // ---- context blocks ----
 
 export function attachBlock(a: SkillModesActive, body: string, reason: 'enter' | 'reattach'): string {
+  const lead =
+    reason === 'enter'
+      ? `The user turned on the "${a.name}" mode. Follow the skill below on this message and every later one, until a skill_mode block says the mode is off.`
+      : `The "${a.name}" mode is still on. The summary dropped its skill, so here it is again. Keep following it until a skill_mode block says the mode is off.`
   return `<skill_mode name="${a.name}" event="${reason === 'enter' ? 'entered' : 'reattached'}">
-${
-  reason === 'enter'
-    ? `The user turned on the "${a.name}" mode. The mode is the skill "${a.name}", attached below in full.`
-    : `The "${a.name}" mode is still on. The conversation was summarized, so the skill "${a.name}" is attached again below in full.`
-}
-Follow this skill for this message and every message after it, until the user exits the mode or switches to another one. While the mode is on, each later message carries a short reminder.
-Skill file: ${a.path}
-Skill directory (relative paths in the skill resolve against it): ${a.dir}
+${lead}
+Skill file: ${a.path} (relative paths in the skill resolve against its folder)
 
 <skill>
 ${body.trim()}
@@ -283,15 +281,15 @@ ${body.trim()}
 
 export function reminderBlock(a: SkillModesActive): string {
   return `<skill_mode name="${a.name}" event="reminder">
-You are still in the "${a.name}" mode: keep following the "${a.name}" skill. If you have lost track of its rules, re-read the skill at ${a.path} before you continue.
+The "${a.name}" mode is still on: keep following its skill. Re-read ${a.path} when unsure of a rule.
 </skill_mode>`
 }
 
 export function exitBlock(x: SkillModesExit): string {
-  if (x.reason === 'missing') {
-    return `<skill_mode name="${x.name}" event="ended">\nThe "${x.name}" mode has ended because its skill file (${x.path}) no longer exists. Stop following the "${x.name}" skill from this message on.\n</skill_mode>`
-  }
-  return `<skill_mode name="${x.name}" event="exited">\nThe user exited the "${x.name}" mode${x.reason === 'switch' ? ' and switched to another mode' : ''}. Stop following the "${x.name}" skill (${x.path}) from this message on; its instructions no longer apply unless the user asks for them again.\n</skill_mode>`
+  const why = x.reason === 'missing' ? `ended: its skill file (${x.path}) was deleted` : 'is off'
+  return `<skill_mode name="${x.name}" event="${x.reason === 'missing' ? 'ended' : 'exited'}">
+The "${x.name}" mode ${why}. From this message on, its skill applies only if the user asks for it again.
+</skill_mode>`
 }
 
 export function blocksFor(s: SkillModesState, body: string | null): string[] {
